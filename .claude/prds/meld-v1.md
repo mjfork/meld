@@ -1,17 +1,18 @@
 ---
 name: meld-v1
-description: Multi-model planning convergence CLI that synthesizes plans from Claude, Gemini, and ChatGPT into a unified approach
+description: Multi-model planning convergence CLI that synthesizes plans from multiple provider CLIs into a unified approach (defaults: Claude, Gemini, OpenAI)
 status: backlog
 created: 2026-01-16T00:52:34Z
+updated: 2026-01-15T22:30:00Z
 ---
 
 # PRD: meld-v1
 
 ## Executive Summary
 
-Meld is a command-line tool that converges planning across multiple frontier AI models. Given a task description, Meld generates an initial plan using Claude (the "Melder"), then solicits feedback from three AI "voices" (Claude CLI, Gemini CLI, ChatGPT CLI) in parallel. The Melder synthesizes all feedback, updates the plan, and iterates until convergence—when no substantive changes remain—or a maximum iteration count is reached.
+Meld is a command-line tool that converges planning across multiple frontier AI models. Given a task description, Meld generates an initial plan using the "melder" (Claude), then solicits feedback from AI "advisors" (Claude CLI, Gemini CLI, OpenAI CLI) in parallel via a provider-adapter layer. The Melder synthesizes all feedback, updates the plan, and iterates until convergence — when no substantive changes remain — or a maximum iteration count is reached.
 
-The result is a battle-tested plan that incorporates diverse AI perspectives, reducing blind spots and improving plan quality through adversarial collaboration.
+The result is a rigorously reviewed plan that incorporates diverse AI perspectives, reducing blind spots and improving plan quality through adversarial collaboration.
 
 **Value Proposition:** Developers get better plans by leveraging the collective intelligence of multiple frontier models, each with different training data, reasoning styles, and blind spots.
 
@@ -50,14 +51,14 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 **Flow:**
 1. Run `meld "Add user authentication with OAuth2 support"`
 2. Watch the TUI show Melder creating initial plan
-3. See three voices provide feedback simultaneously
+3. See three advisors provide feedback simultaneously
 4. Watch Melder incorporate feedback and iterate
 5. Receive final converged plan as markdown
 
 **Acceptance Criteria:**
 - Total time under 10 minutes for typical features
 - Plan includes architecture, steps, and considerations
-- Divergent opinions from voices are reconciled, not ignored
+- Divergent opinions from advisors are reconciled, not ignored
 
 ### Story 2: Complex System Design
 **As a developer designing a distributed system**, I want thorough multi-perspective review so that I catch scalability and reliability issues early.
@@ -71,22 +72,23 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 **Acceptance Criteria:**
 - Can configure iteration count via `--rounds` flag
 - Complex tasks benefit from additional iterations
-- Final plan addresses concerns raised by all voices
+- Final plan addresses concerns raised by all advisors
 
 ### Story 3: Debugging a Planning Failure
 **As a developer whose meld failed**, I want to understand what went wrong so that I can retry or adjust.
 
 **Flow:**
-1. Run meld, one voice times out
-2. See clear indication in TUI which voice failed
-3. Meld retries once, then continues without that voice
-4. Final plan notes which voices contributed
+1. Run meld, one advisor times out
+2. See clear indication in TUI which advisor failed
+3. Meld retries once, then continues without that advisor
+4. Final plan notes which advisors contributed
 
 **Acceptance Criteria:**
 - Clear error indication in TUI
-- Automatic retry before giving up on a voice
-- Graceful degradation (2 voices still produces useful output)
-- Final output indicates which voices participated
+- Automatic retry before giving up on an advisor
+- Graceful degradation (2 advisors still produces useful output)
+- Final output indicates which advisors participated
+- `meld doctor` provides actionable diagnostics for missing CLIs and auth failures
 
 ## Requirements
 
@@ -95,6 +97,7 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 #### FR1: Task Input
 - Accept natural language task description as CLI argument
 - Support multi-line input via stdin or file (`meld --file task.txt`)
+- Optional: accept a PRD/requirements file for additional context (`meld --prd prd.md`)
 - Validate input is non-empty and reasonable length
 
 #### FR2: Initial Plan Generation (Melder)
@@ -102,15 +105,19 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 - Plan should include: overview, steps, considerations, risks
 - Melder prompt should be optimized for actionable plans
 
-#### FR3: Voice Feedback Collection
-- Invoke three CLI tools in parallel: `claude`, `gemini`, `chatgpt`
-- Each voice receives: original task + current plan
-- Each voice provides: structured feedback (improvements, concerns, additions)
-- Timeout per voice: 120 seconds (configurable)
-- On timeout: retry once, then proceed without that voice
+#### FR3: Advisor Feedback Collection
+- Invoke advisor CLIs in parallel via provider-adapter layer (default: `claude`, `gemini`, `openai`)
+- Each advisor receives: original task + current plan (+ PRD context if provided)
+- Each advisor provides: structured feedback (improvements, concerns, additions, rationale)
+- Timeout per advisor: 600 seconds (configurable)
+- Error handling must classify failures:
+  - TIMEOUT: retry once
+  - RATE_LIMIT / NETWORK: retry with exponential backoff (max 3 attempts)
+  - AUTH_FAILED / CLI_NOT_FOUND / PARSE_ERROR: fail fast for that provider (no retry)
+- After retries exhausted: continue with remaining advisors and record failures in output metadata
 
 #### FR4: Feedback Synthesis (Melder)
-- Melder receives all voice feedback
+- Melder receives all advisor feedback
 - Melder decides what to incorporate, what to reject, and why
 - Melder produces updated plan
 - Melder indicates if convergence reached (no substantive changes)
@@ -122,55 +129,87 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 - Each round: collect feedback → synthesize → update plan
 
 #### FR6: TUI Display
-- Four-panel layout using Rich + Textual
+- Four-panel layout using Textual (Rich-based rendering)
 - Top panel: Melder (full width)
-- Bottom three panels: Claude voice, Gemini voice, ChatGPT voice (each 1/3 width)
+- Bottom three panels: Claude advisor, Gemini advisor, OpenAI advisor (each 1/3 width)
 - Real-time streaming output as each component runs
 - Clear visual indication of current phase (planning, feedback, synthesis)
-- Status indicators for each voice (running, complete, failed, retrying)
+- Status indicators for each advisor (running, complete, failed, retrying)
+- Event-driven updates (TUI subscribes to orchestrator events)
+- Throttled rendering to prevent flicker and excessive CPU usage
+- Provide a compact "Plan Delta" indicator per round (summary of what changed)
 
 #### FR7: Output Generation
 - Final plan output as markdown document
 - Default: print to stdout
 - Optional: write to file via `--output plan.md`
-- Include metadata: voices that participated, rounds completed, convergence status
+- Optional: emit machine-readable JSON summary for CI/scripting (`--json-output result.json`)
+- Include metadata: advisors that participated, rounds completed, convergence status
 
 #### FR8: Configuration
 - `--rounds N`: max iteration rounds (default: 5)
 - `--output FILE`: write plan to file instead of stdout
+- `--json-output FILE`: write machine-readable JSON summary
 - `--file FILE`: read task from file instead of argument
+- `--prd FILE`: include requirements context in prompts
 - `--quiet`: minimal output, no TUI (for scripting)
-- `--verbose`: include raw voice outputs in final document
+- `--verbose`: include raw advisor outputs in final document
+- `--run-dir DIR`: root directory for run artifacts (default: `.meld/runs/`)
+- `--resume RUN_ID`: resume an interrupted run from the last checkpoint
+- `--no-save`: do not write run artifacts to disk (disables resume)
+- `--skip-preflight`: skip environment validation (advanced users / CI)
+
+#### FR9: Session Persistence & Resume
+- Create a run directory per invocation (default: `.meld/runs/<run_id>/`)
+- Persist artifacts incrementally after each round:
+  - Task input and PRD context (if provided)
+  - Plan snapshots after each synthesis
+  - Advisor feedback per round
+  - Run summary with timing and status
+- Support `--resume <run_id>` to continue from the last completed round after interruption
+- On completion, write `final-plan.md` into the run directory (even if stdout is used)
+
+#### FR10: Preflight & Diagnostics
+- Before running (unless `--skip-preflight`), validate:
+  - Required CLIs exist on PATH (for configured providers)
+  - Authentication appears valid (provider-specific lightweight check)
+  - Provider adapter can invoke the CLI in non-interactive mode
+- Provide a `meld doctor` command that:
+  - Runs all preflight checks
+  - Prints suggested fixes for any failures
+  - Lists detected provider CLIs with versions
 
 ### Non-Functional Requirements
 
-#### NFR1: Performance
-- Initial plan generation: < 30 seconds
-- Each feedback round: < 60 seconds (parallel voice calls)
-- Total time for 5 rounds: < 5 minutes typical
-- Timeout handling prevents infinite hangs
-
-#### NFR2: Reliability
-- Graceful handling of CLI failures (retry + continue)
-- No data loss if process interrupted (partial results logged)
+#### NFR1: Reliability
+- Graceful handling of CLI failures (classified retries + continue with remaining advisors)
+- No data loss if process interrupted (crash-safe artifacts written each round; resumable run)
 - Clear error messages for common failures (CLI not found, auth issues)
+- Explicit error taxonomy with user-actionable messages (install/auth/fix flags)
 
-#### NFR3: Usability
+#### NFR2: Usability
 - Zero configuration for users with pre-configured CLIs
 - Intuitive TUI that doesn't require documentation to understand
 - Helpful error messages that suggest fixes
 
-#### NFR4: Maintainability
-- Clean separation: orchestration, voice adapters, TUI, output formatting
-- Easy to add new voices (new CLI tools)
+#### NFR3: Maintainability
+- Clean separation: orchestration, provider adapters, TUI, output formatting
+- Internal provider-adapter architecture isolates CLI quirks from core orchestration
+- Easy to add new providers (new CLI tools)
 - Prompt templates externalized for tuning
+- Include mock provider implementations for deterministic CI testing
+
+#### NFR4: Security & Privacy
+- Default to provider read-only / sandbox modes where supported
+- Persisted artifacts redact common secret patterns (API keys, tokens) by default
+- Provide `--no-save` flag to disable writing artifacts for sensitive tasks
+- Clearly document where run artifacts are stored (`.meld/runs/`) and recommend gitignoring
 
 ## Success Criteria
 
 ### Quantitative Metrics
 - **Convergence rate:** >80% of tasks converge within 5 rounds
-- **Voice success rate:** >95% of voice invocations complete without timeout
-- **User task completion:** Users can run meld end-to-end in <10 minutes
+- **Voice success rate:** >95% of advisor invocations complete without timeout
 
 ### Qualitative Metrics
 - Users report plans are "more thorough" than single-model plans
@@ -186,15 +225,16 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 ## Constraints & Assumptions
 
 ### Assumptions
-- Users have `claude`, `gemini`, and `chatgpt` CLIs installed and configured
+- Users have at least one of `claude`, `gemini`, `openai` CLIs installed and configured
 - CLIs are authenticated and ready to use (API keys configured)
 - Users have sufficient API credits/quota for multiple model calls
-- Network connectivity to all three AI providers
+- Network connectivity to AI providers
+- For optimal multi-perspective feedback, all three CLIs should be available (graceful degradation with fewer)
 
 ### Constraints
 - **Python 3.10+** required (for modern async and type hints)
 - **No API key management** - relies on pre-configured CLIs
-- **Three specific voices** for v1 - no pluggable voice system yet
+- **Ships with three built-in providers** (Claude, Gemini, OpenAI) by default; internal adapter architecture supports additional providers without changes to core orchestration. User-configurable advisor selection is v1.1.
 - **CLI-based only** - no web interface, no API server
 
 ### Technical Constraints
@@ -206,51 +246,29 @@ Asking multiple models manually is tedious: copy-paste between interfaces, menta
 
 The following are explicitly **NOT** included in v1:
 
-- **Custom voice configuration** - hardcoded to Claude, Gemini, ChatGPT
+- **Custom advisor configuration** - v1 ships with Claude, Gemini, OpenAI; user selection is v1.1
 - **Direct API integration** - uses CLIs, not API libraries
 - **Plan history/versioning** - each run is independent
 - **Web interface** - CLI only
-- **Plan templates** - freeform output only
+- **Plan templates** - freeform output only (but PRD/requirements context injection is supported via `--prd`)
 - **Cost tracking** - no token counting or cost estimation
 - **Offline mode** - requires network access
-- **Plugin system** - no extensibility architecture
+- **Plugin system** - no third-party extensibility architecture
 - **Plan execution** - outputs plan only, doesn't run it
-- **Context/codebase awareness** - takes only the task prompt, no repo analysis
+- **Automatic context/codebase awareness** - no automatic repo analysis (explicit `--prd` context is supported)
 
 ## Dependencies
 
 ### External Dependencies
 - `claude` CLI - Anthropic's official Claude CLI tool
 - `gemini` CLI - Google's official Gemini CLI tool
-- `chatgpt` CLI - OpenAI's official ChatGPT CLI tool
+- `openai` CLI - OpenAI's official CLI tool (or `chatgpt` depending on available tooling)
 - Python 3.10+
 - Rich library (terminal formatting)
 - Textual library (TUI framework)
 
-### Development Dependencies
-- pytest for testing
-- black/ruff for formatting
-- mypy for type checking
-
 ### No Internal Dependencies
 This is a standalone tool with no dependencies on other internal systems.
-
-## Technical Notes
-
-### CLI Invocation Pattern
-Each voice CLI will be invoked via subprocess with prompt piped to stdin:
-```python
-process = await asyncio.create_subprocess_exec(
-    "claude", "--prompt", "-",
-    stdin=asyncio.subprocess.PIPE,
-    stdout=asyncio.subprocess.PIPE,
-    stderr=asyncio.subprocess.PIPE
-)
-stdout, stderr = await asyncio.wait_for(
-    process.communicate(input=prompt.encode()),
-    timeout=120
-)
-```
 
 ### TUI Layout (Textual)
 ```
@@ -259,7 +277,7 @@ stdout, stderr = await asyncio.wait_for(
 │  [Status: Synthesizing round 2/5...]    │
 │  Current plan: ...                      │
 ├─────────────┬─────────────┬─────────────┤
-│   CLAUDE    │   GEMINI    │   CHATGPT   │
+│   CLAUDE    │   GEMINI    │   OPENAI    │
 │   [Voice]   │   [Voice]   │   [Voice]   │
 │             │             │             │
 │  Feedback:  │  Feedback:  │  Feedback:  │
@@ -268,18 +286,26 @@ stdout, stderr = await asyncio.wait_for(
 ```
 
 ### Convergence Detection
-The Melder will be prompted to explicitly state whether convergence is reached:
-- "CONVERGED: No substantive changes needed"
-- "CONTINUING: Incorporated N changes, M open items remain"
 
-This structured output enables reliable convergence detection.
+Use a hybrid approach to reduce false convergence:
+
+**Primary signal:** Melder must output a structured "Convergence Assessment" section with:
+- STATUS: CONVERGED | CONTINUING
+- CHANGES_MADE: integer (substantive changes this round)
+- OPEN_ITEMS: integer (unresolved concerns / questions)
+
+**Secondary validation:** Compute a normalized diff ratio between the previous plan and current plan.
+- If OPEN_ITEMS > 0: never converge
+- If STATUS=CONVERGED but diff ratio is large: treat as CONTINUING
+
+**Oscillation guard:** If the plan cycles across recent rounds (e.g., A→B→A), stop early and output:
+"NEEDS HUMAN DECISION" with the unresolved tradeoffs and the competing options.
+
+This multi-signal approach prevents false positives from models overclaiming completion.
 
 ## Open Questions
 
-1. **Voice prompt tuning:** What prompt structure yields the most useful feedback?
-2. **Convergence threshold:** Should "cosmetic only" changes count as convergence?
-3. **Partial voice failure:** With only 2 voices, is the output still valuable enough?
-4. **Long tasks:** How to handle tasks that need more context than fits in a prompt?
+1. **Advisor prompt tuning:** What prompt structure yields the most useful feedback?
 
 These will be resolved during prototyping.
 
@@ -288,3 +314,4 @@ These will be resolved during prototyping.
 | Date | Version | Changes |
 |------|---------|---------|
 | 2026-01-16 | 0.1 | Initial PRD draft |
+| 2026-01-15 | 0.2 | Added FR9 (session persistence), FR10 (preflight/doctor), NFR4 (security); upgraded convergence detection to hybrid approach; added error taxonomy; added `--prd`, `--json-output`, `--resume` flags; internal provider-adapter architecture |
