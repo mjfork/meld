@@ -1,0 +1,16 @@
+# bv (beads viewer) local config and caches
+.bv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local state
+.meld/
+.ralph-tui/
+
+# Dependencies lock (optional - uncomment to track)
+# uv.lock
