@@ -35,7 +35,7 @@ STATUS_CONFIG: dict[PanelStatus, dict[str, str]] = {
     PanelStatus.STREAMING: {"icon": "▌", "color": "cyan"},
     PanelStatus.COMPLETE: {"icon": "●", "color": "green"},
     PanelStatus.FAILED: {"icon": "✗", "color": "red"},
-    PanelStatus.RETRYING: {"icon": "↻", "color": "dark_orange"},
+    PanelStatus.RETRYING: {"icon": "↻", "color": "darkorange"},
 }
 
 
@@ -143,7 +143,7 @@ class MeldPanel(Static):
     }
 
     MeldPanel.retrying {
-        border: solid dark_orange;
+        border: solid darkorange;
     }
     """
 
