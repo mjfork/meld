@@ -1,8 +1,10 @@
 """Orchestrator for the meld convergence loop."""
 
 import signal
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from meld.advisors import AdvisorPool
 from meld.convergence import ConvergenceDetector
@@ -11,6 +13,13 @@ from meld.melder import Melder
 from meld.output import OutputFormatter
 from meld.preflight import run_preflight
 from meld.session import SessionManager
+
+if TYPE_CHECKING:
+    from meld.tui import TUIController
+
+
+# Type alias for event callback
+EventCallback = Callable[[str, dict[str, Any]], None]
 
 
 @dataclass
@@ -43,6 +52,8 @@ class Orchestrator:
         verbose: bool = False,
         no_save: bool = False,
         skip_preflight: bool = False,
+        tui_controller: "TUIController | None" = None,
+        on_event: EventCallback | None = None,
     ) -> None:
         """Initialize the orchestrator."""
         self._task = task
@@ -71,9 +82,21 @@ class Orchestrator:
         self._interrupted = False
         self._setup_signal_handlers()
 
+        # TUI integration
+        self._tui_controller = tui_controller
+        self._on_event = on_event
+
     def _load_prd(self, path: str) -> str:
         """Load PRD content from file."""
         return Path(path).read_text()
+
+    def _emit_event(self, event_type: str, **data: Any) -> None:
+        """Emit an event to TUI or callback."""
+        if self._tui_controller:
+            from meld.tui import OrchestratorEvent
+            self._tui_controller.on_event(OrchestratorEvent(event_type, data))
+        if self._on_event:
+            self._on_event(event_type, data)
 
     def _setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown."""
@@ -111,12 +134,17 @@ class Orchestrator:
         if not self._quiet:
             print("Generating initial plan...")
 
+        self._emit_event("phase_changed", phase="Planning", round=0)
+        self._emit_event("melder_started")
+
         melder_result = await self._melder.generate_initial_plan(
             self._task,
             self._prd_context,
         )
         current_plan = melder_result.plan
         self._session.write_plan(current_plan, 0)
+
+        self._emit_event("melder_complete", content=current_plan)
 
         all_participants: set[str] = set()
         converged = False
@@ -131,6 +159,9 @@ class Orchestrator:
             if not self._quiet:
                 print(f"\n--- Round {round_num}/{self._max_rounds} ---")
                 print("Collecting advisor feedback...")
+
+            self._emit_event("round_started", round=round_num)
+            self._emit_event("phase_changed", phase="Feedback", round=round_num)
 
             # Collect feedback
             advisor_results = await self._advisor_pool.collect_feedback(
@@ -153,9 +184,27 @@ class Orchestrator:
                         round_num,
                     )
 
+            # Emit advisor completion events
+            for result in advisor_results:
+                if result.success:
+                    self._emit_event(
+                        "advisor_complete",
+                        provider=result.provider,
+                        content=result.feedback,
+                    )
+                else:
+                    self._emit_event(
+                        "advisor_failed",
+                        provider=result.provider,
+                        error=str(result.error) if result.error else "Unknown error",
+                    )
+
             if not self._quiet:
                 print(f"Received feedback from: {', '.join(participants)}")
                 print("Synthesizing...")
+
+            self._emit_event("synthesis_started")
+            self._emit_event("phase_changed", phase="Synthesizing", round=round_num)
 
             # Synthesize feedback
             synthesis = await self._melder.synthesize_feedback(
@@ -175,10 +224,14 @@ class Orchestrator:
             current_plan = synthesis.plan
             self._session.write_plan(current_plan, round_num)
 
+            self._emit_event("melder_complete", content=current_plan)
+
             if convergence.status == ConvergenceStatus.CONVERGED:
                 if not self._quiet:
                     print("✓ Plan converged!")
                 converged = True
+                self._emit_event("converged")
+                self._emit_event("phase_changed", phase="Converged", round=round_num)
                 break
             elif convergence.status == ConvergenceStatus.OSCILLATING:
                 if not self._quiet:
@@ -243,9 +296,26 @@ def run_meld(
     verbose: bool = False,
     no_save: bool = False,
     skip_preflight: bool = False,
+    use_tui: bool = False,
 ) -> MeldResult:
     """Run meld synchronously."""
     import asyncio
+
+    if use_tui and not quiet:
+        # Run with TUI
+        return asyncio.run(_run_with_tui(
+            task=task,
+            prd_path=prd_path,
+            max_rounds=max_rounds,
+            timeout=timeout,
+            output_path=output_path,
+            json_output_path=json_output_path,
+            run_dir=run_dir,
+            resume_id=resume_id,
+            verbose=verbose,
+            no_save=no_save,
+            skip_preflight=skip_preflight,
+        ))
 
     orchestrator = Orchestrator(
         task=task,
@@ -263,3 +333,62 @@ def run_meld(
     )
 
     return asyncio.run(_run_async(orchestrator))
+
+
+async def _run_with_tui(
+    task: str,
+    prd_path: str | None = None,
+    max_rounds: int = 5,
+    timeout: int = 600,
+    output_path: str | None = None,
+    json_output_path: str | None = None,
+    run_dir: str = ".meld/runs",
+    resume_id: str | None = None,
+    verbose: bool = False,
+    no_save: bool = False,
+    skip_preflight: bool = False,
+) -> MeldResult:
+    """Run meld with TUI interface."""
+    import asyncio
+
+    from meld.tui import MeldApp, TUIController
+
+    result_holder: list[MeldResult] = []
+    exception_holder: list[BaseException] = []
+
+    async def run_orchestrator(controller: TUIController) -> None:
+        try:
+            orchestrator = Orchestrator(
+                task=task,
+                prd_path=prd_path,
+                max_rounds=max_rounds,
+                timeout=timeout,
+                output_path=output_path,
+                json_output_path=json_output_path,
+                run_dir=run_dir,
+                resume_id=resume_id,
+                quiet=True,  # TUI handles output
+                verbose=verbose,
+                no_save=no_save,
+                skip_preflight=skip_preflight,
+                tui_controller=controller,
+            )
+            result = await orchestrator.run()
+            result_holder.append(result)
+        except BaseException as e:
+            exception_holder.append(e)
+
+    def on_ready(app: MeldApp) -> None:
+        controller = TUIController(app)
+        asyncio.create_task(run_orchestrator(controller))
+
+    app = MeldApp(max_rounds=max_rounds, on_ready=on_ready)
+    await app.run_async()
+
+    if exception_holder:
+        raise exception_holder[0]
+    if result_holder:
+        return result_holder[0]
+
+    # Should not reach here, but provide a fallback
+    raise RuntimeError("TUI exited without result")

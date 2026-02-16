@@ -44,6 +44,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-dir", default=".meld/runs", help="Run artifacts directory")
     parser.add_argument("--resume", help="Resume interrupted run by ID")
     parser.add_argument("--quiet", "-q", action="store_true", help="Minimal output, no TUI")
+    parser.add_argument("--tui", action="store_true", help="Use interactive TUI display")
     parser.add_argument("--verbose", "-v", action="store_true", help="Include raw advisor outputs")
     parser.add_argument("--no-save", action="store_true", help="Don't write artifacts")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip environment checks")
@@ -96,6 +97,7 @@ def main() -> NoReturn:
         verbose=args.verbose,
         no_save=args.no_save,
         skip_preflight=args.skip_preflight,
+        use_tui=args.tui,
     )
 
     sys.exit(0 if result.success else 1)
