@@ -164,6 +164,7 @@ class MeldPanel(Static):
         self._buffer = StreamBuffer()
         self._start_time: datetime | None = None
         self._retry_count = 0
+        self._command: str | None = None  # CLI command for display
 
         # Add class for styling
         self.add_class("melder" if is_melder else "advisor")
@@ -248,12 +249,39 @@ class MeldPanel(Static):
         self.update("")
         self._start_time = None
         self.elapsed = 0.0
+        self._command = None
+
+    def set_command(self, command: str, prompt_max_len: int = 40) -> None:
+        """Set the CLI command to display.
+
+        Args:
+            command: Full CLI command string
+            prompt_max_len: Max length for prompt portion before truncation
+        """
+        self._command = command
 
     def render(self) -> RenderableType:
         """Render the panel content."""
+        lines: list[Text] = []
+
+        # Show command if set
+        if self._command:
+            lines.append(Text(f"$ {self._command}", style="dim italic"))
+            lines.append(Text(""))  # Blank line separator
+
+        # Show content or waiting message
         if not self._buffer.content and not self._buffer._pending:
-            return Text("Waiting...", style="dim")
-        return Text(self._buffer.content + self._buffer._pending, no_wrap=False)
+            lines.append(Text("Waiting...", style="dim"))
+        else:
+            lines.append(Text(self._buffer.content + self._buffer._pending, no_wrap=False))
+
+        # Combine all lines
+        result = Text()
+        for i, line in enumerate(lines):
+            if i > 0:
+                result.append("\n")
+            result.append_text(line)
+        return result
 
 
 class StatusBar(Static):
@@ -334,7 +362,6 @@ class MeldApp(App[None]):
     """Main Textual application for meld TUI."""
 
     TITLE = "meld"
-    SUB_TITLE = "Multi-model Planning Convergence"
 
     CSS = """
     Screen {
@@ -363,11 +390,13 @@ class MeldApp(App[None]):
         self,
         max_rounds: int = 5,
         on_ready: Callable[["MeldApp"], None] | None = None,
+        cli_command: str | None = None,
     ) -> None:
         """Initialize the app."""
         super().__init__()
         self._max_rounds = max_rounds
         self._on_ready = on_ready
+        self._cli_command = cli_command
         self._session_start: datetime | None = None
         self._timer_task: asyncio.Task[None] | None = None
 
@@ -376,6 +405,12 @@ class MeldApp(App[None]):
         self._advisor_panels: dict[str, MeldPanel] = {}
         self._phase_header: PhaseHeader | None = None
         self._status_bar: StatusBar | None = None
+
+        # Set subtitle to CLI command if provided
+        if cli_command:
+            self.sub_title = cli_command
+        else:
+            self.sub_title = "Multi-model Planning Convergence"
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -495,6 +530,12 @@ class MeldApp(App[None]):
         if provider_key in self._advisor_panels:
             self._advisor_panels[provider_key].set_status(status, retry_count)
 
+    def set_advisor_command(self, provider: str, command: str) -> None:
+        """Set the CLI command displayed in an advisor panel."""
+        provider_key = provider.lower()
+        if provider_key in self._advisor_panels:
+            self._advisor_panels[provider_key].set_command(command)
+
     def clear_advisors(self) -> None:
         """Clear all advisor panels."""
         for panel in self._advisor_panels.values():
@@ -551,6 +592,11 @@ class TUIController:
 
             case "advisor_started":
                 provider = event.data.get("provider", "")
+                command_parts = event.data.get("command", [])
+                if command_parts:
+                    # Format command with truncated prompt
+                    formatted_cmd = truncate_command_prompt(command_parts)
+                    self._app.set_advisor_command(provider, formatted_cmd)
                 self._app.set_advisor_status(provider, PanelStatus.RUNNING)
 
             case "advisor_streaming":
@@ -640,6 +686,34 @@ class TUIController:
     def on_converged(self) -> None:
         """Handle convergence."""
         self.on_event(OrchestratorEvent("converged"))
+
+
+def truncate_command_prompt(command_parts: list[str], max_prompt_len: int = 40) -> str:
+    """Format a command with truncated prompt for display.
+
+    Args:
+        command_parts: Command as list of strings (from build_command)
+        max_prompt_len: Max length for prompt before truncation
+
+    Returns:
+        Formatted command string with truncated prompt
+    """
+    result_parts: list[str] = []
+    for i, part in enumerate(command_parts):
+        # Check if this looks like a prompt (long string after -p flag)
+        if i > 0 and command_parts[i - 1] == "-p" and len(part) > max_prompt_len:
+            truncated = part[:max_prompt_len] + "..."
+            # Quote if contains spaces
+            if " " in truncated:
+                result_parts.append(f'"{truncated}"')
+            else:
+                result_parts.append(truncated)
+        elif " " in part:
+            # Quote parts with spaces
+            result_parts.append(f'"{part}"')
+        else:
+            result_parts.append(part)
+    return " ".join(result_parts)
 
 
 def status_from_advisor_status(status: AdvisorStatus) -> PanelStatus:

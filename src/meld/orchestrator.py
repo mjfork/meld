@@ -163,6 +163,23 @@ class Orchestrator:
             self._emit_event("round_started", round=round_num)
             self._emit_event("phase_changed", phase="Feedback", round=round_num)
 
+            # Build prompt and get commands for TUI display
+            from meld.prompts import ADVISOR_PROMPT
+            prompt = ADVISOR_PROMPT.format(
+                task=self._task,
+                plan=current_plan,
+                prd_context=self._prd_context or "No additional context.",
+            )
+            advisor_commands = self._advisor_pool.get_advisor_commands(prompt)
+
+            # Emit advisor_started events with commands
+            for provider, cmd_parts in advisor_commands.items():
+                self._emit_event(
+                    "advisor_started",
+                    provider=provider,
+                    command=cmd_parts,  # Pass command parts for TUI to format
+                )
+
             # Collect feedback
             advisor_results = await self._advisor_pool.collect_feedback(
                 plan=current_plan,
@@ -297,6 +314,7 @@ def run_meld(
     no_save: bool = False,
     skip_preflight: bool = False,
     use_tui: bool = False,
+    cli_command: str | None = None,
 ) -> MeldResult:
     """Run meld synchronously."""
     import asyncio
@@ -315,6 +333,7 @@ def run_meld(
             verbose=verbose,
             no_save=no_save,
             skip_preflight=skip_preflight,
+            cli_command=cli_command,
         ))
 
     orchestrator = Orchestrator(
@@ -347,6 +366,7 @@ async def _run_with_tui(
     verbose: bool = False,
     no_save: bool = False,
     skip_preflight: bool = False,
+    cli_command: str | None = None,
 ) -> MeldResult:
     """Run meld with TUI interface."""
     import asyncio
@@ -382,7 +402,7 @@ async def _run_with_tui(
         controller = TUIController(app)
         asyncio.create_task(run_orchestrator(controller))
 
-    app = MeldApp(max_rounds=max_rounds, on_ready=on_ready)
+    app = MeldApp(max_rounds=max_rounds, on_ready=on_ready, cli_command=cli_command)
     await app.run_async()
 
     if exception_holder:

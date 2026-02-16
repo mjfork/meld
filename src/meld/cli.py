@@ -1,10 +1,23 @@
 """CLI entry point for meld."""
 
 import argparse
+import shlex
 import sys
 from typing import NoReturn
 
 from meld import __version__
+
+
+def get_launch_command() -> str:
+    """Reconstruct the CLI launch command from sys.argv."""
+    parts = ["meld"]
+    for arg in sys.argv[1:]:
+        # Quote arguments that contain spaces or special characters
+        if " " in arg or any(c in arg for c in "'\"\\"):
+            parts.append(shlex.quote(arg))
+        else:
+            parts.append(arg)
+    return " ".join(parts)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -98,6 +111,7 @@ def main() -> NoReturn:
         no_save=args.no_save,
         skip_preflight=args.skip_preflight,
         use_tui=args.tui,
+        cli_command=get_launch_command() if args.tui else None,
     )
 
     sys.exit(0 if result.success else 1)

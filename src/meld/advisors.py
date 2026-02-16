@@ -121,3 +121,17 @@ class AdvisorPool:
     def get_participating_advisors(self, results: list[AdvisorResult]) -> list[str]:
         """Get list of advisors that successfully participated."""
         return [r.provider for r in results if r.success]
+
+    def get_advisor_commands(self, prompt: str) -> dict[str, list[str]]:
+        """Get the CLI commands for each advisor.
+
+        Args:
+            prompt: The prompt that will be sent to advisors
+
+        Returns:
+            Dict mapping provider name to command parts list
+        """
+        return {
+            adapter.name: adapter.build_command(prompt)
+            for adapter in self._adapters
+        }
