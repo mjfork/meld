@@ -406,12 +406,6 @@ class MeldApp(App[None]):
         self._phase_header: PhaseHeader | None = None
         self._status_bar: StatusBar | None = None
 
-        # Set subtitle to CLI command if provided
-        if cli_command:
-            self.sub_title = cli_command
-        else:
-            self.sub_title = "Multi-model Planning Convergence"
-
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
         yield Header()
@@ -430,6 +424,12 @@ class MeldApp(App[None]):
 
     def on_mount(self) -> None:
         """Called when app is mounted."""
+        # Set subtitle to CLI command if provided
+        if self._cli_command:
+            self.sub_title = self._cli_command
+        else:
+            self.sub_title = "Multi-model Planning Convergence"
+
         # Store panel references
         self._melder_panel = self.query_one("#melder-panel", MeldPanel)
         self._advisor_panels = {
