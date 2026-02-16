@@ -180,7 +180,8 @@ class TestOrchestrator:
         import json
         data = json.loads(json_file.read_text())
         assert "session_id" in data
-        assert "converged" in data
+        assert "convergence" in data
+        assert data["convergence"]["converged"] is True
 
     @pytest.mark.asyncio
     async def test_includes_prd_context(self, mock_components, temp_run_dir: Path, tmp_path: Path) -> None:

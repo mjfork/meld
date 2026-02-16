@@ -214,7 +214,7 @@ Comprehensive plan for: {task}
         content = output_file.read_text()
         logger.info(f"E2E: Output file size: {len(content)} chars")
 
-        assert "Meld Plan Output" in content
+        assert "Implementation Plan" in content
         assert "caching" in content.lower() or "Overview" in content
 
     def test_json_output(self, mock_full_system, tmp_path: Path) -> None:
@@ -238,10 +238,10 @@ Comprehensive plan for: {task}
         logger.info(f"E2E: JSON output: {json.dumps(data, indent=2)}")
 
         assert "session_id" in data
-        assert "converged" in data
-        assert data["converged"] is True
-        assert "advisors_participated" in data
-        assert len(data["advisors_participated"]) == 3
+        assert "convergence" in data
+        assert data["convergence"]["converged"] is True
+        assert "advisors" in data
+        assert len(data["advisors"]) == 3
 
     def test_session_artifacts_created(self, mock_full_system) -> None:
         """Test that all session artifacts are created."""
