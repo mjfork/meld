@@ -90,10 +90,17 @@ class Orchestrator:
 
         # Preflight checks
         if not self._skip_preflight:
-            results = await run_preflight()
-            available = [r for r in results if r.cli_found]
-            if not available:
-                raise RuntimeError("No provider CLIs available. Run 'meld doctor' for help.")
+            preflight_result = await run_preflight(skip=False)
+            if not preflight_result.passed:
+                errors = "\n".join(preflight_result.errors)
+                raise RuntimeError(
+                    f"Preflight checks failed:\n{errors}\n\n"
+                    "Run 'meld doctor' for detailed diagnostics."
+                )
+            # Show warnings if any
+            if preflight_result.warnings and not self._quiet:
+                for warning in preflight_result.warnings:
+                    print(f"⚠ {warning}")
 
         # Save initial task
         self._session.write_artifact("task.md", self._task)
