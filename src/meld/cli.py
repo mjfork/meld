@@ -4,6 +4,8 @@ import argparse
 import sys
 from typing import NoReturn
 
+from meld import __version__
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create and configure the argument parser."""
@@ -18,6 +20,10 @@ Examples:
   meld --rounds 7 "Design event-driven order processing"
   meld doctor
         """,
+    )
+
+    parser.add_argument(
+        "--version", "-V", action="version", version=f"%(prog)s {__version__}"
     )
 
     # Add run arguments
@@ -46,7 +52,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
 def get_task_input(args: argparse.Namespace) -> str:
     """Get task input from arguments, file, or stdin."""
     if args.task:
-        return args.task
+        return str(args.task)
 
     if args.file:
         with open(args.file) as f:

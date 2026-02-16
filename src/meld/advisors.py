@@ -1,7 +1,7 @@
 """Advisor pool for parallel feedback collection."""
 
 import asyncio
-from typing import Callable
+from collections.abc import Callable
 
 from meld.data_models import AdvisorResult, ProviderErrorType
 from meld.prompts import ADVISOR_PROMPT

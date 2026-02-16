@@ -1,7 +1,6 @@
 """Convergence detection logic."""
 
 import difflib
-from typing import Optional
 
 from meld.data_models import ConvergenceAssessment, ConvergenceStatus
 
@@ -50,7 +49,7 @@ class ConvergenceDetector:
 
     def check_convergence(
         self,
-        melder_assessment: Optional[ConvergenceAssessment],
+        melder_assessment: ConvergenceAssessment | None,
         old_plan: str,
         new_plan: str,
         round_number: int,

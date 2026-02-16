@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from meld.data_models import AdvisorResult, ProviderError, ProviderErrorType, StreamEvent
 

@@ -2,7 +2,6 @@
 
 import signal
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from meld.advisors import AdvisorPool
@@ -88,7 +87,6 @@ class Orchestrator:
 
     async def run(self) -> MeldResult:
         """Run the meld convergence loop."""
-        import asyncio
 
         # Preflight checks
         if not self._skip_preflight:

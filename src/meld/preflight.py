@@ -75,7 +75,7 @@ def run_doctor() -> int:
             print(f"     Fix: Run '{result.provider} auth login' or configure API key")
             all_ok = False
         else:
-            print(f"  └─ Ready")
+            print("  └─ Ready")
 
         print()
 
