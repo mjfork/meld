@@ -12,7 +12,7 @@ class AdvisorPool:
     """Pool of advisors for parallel feedback collection."""
 
     # Retry configuration by error type
-    RETRY_CONFIG = {
+    RETRY_CONFIG: dict[ProviderErrorType, dict[str, int | float]] = {
         ProviderErrorType.TIMEOUT: {"max_retries": 1, "backoff": 0},
         ProviderErrorType.RATE_LIMITED: {"max_retries": 3, "backoff": 1.0},
         ProviderErrorType.NETWORK_ERROR: {"max_retries": 3, "backoff": 3.0},
@@ -57,12 +57,14 @@ class AdvisorPool:
             for adapter in self._adapters
         ]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[AdvisorResult | BaseException] = await asyncio.gather(
+            *tasks, return_exceptions=True
+        )
 
         # Convert exceptions to failed results
         processed: list[AdvisorResult] = []
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 processed.append(
                     AdvisorResult(
                         provider=self._adapters[i].name,
@@ -94,8 +96,8 @@ class AdvisorPool:
         # Check if error is retryable
         if result.error and result.error.error_type in self.RETRY_CONFIG:
             config = self.RETRY_CONFIG[result.error.error_type]
-            max_retries = config["max_retries"]
-            backoff = config["backoff"]
+            max_retries = int(config["max_retries"])
+            backoff = float(config["backoff"])
 
             for attempt in range(max_retries):
                 self._notify_status(adapter.name, "retrying")
